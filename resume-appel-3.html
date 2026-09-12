@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Résumé d'appel</title>
+<style>
+  :root {
+    --ink: #0F1417;
+    --surface: #171E22;
+    --surface-2: #1F282D;
+    --line: #2A353B;
+    --text: #E9EFF1;
+    --muted: #8A9BA3;
+    --accent: #5EEAD4;
+    --accent-dim: #2E7A6F;
+    --warn: #E8B563;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ink);
+    color: var(--text);
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 32px 28px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 0 0 28px;
+    line-height: 1.5;
+  }
+  .listen-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  .mic-btn {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: var(--accent);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.15s;
+  }
+  .mic-btn:active { transform: scale(0.96); }
+  .mic-btn.recording {
+    background: var(--accent);
+    color: var(--ink);
+    box-shadow: 0 0 0 8px rgba(94, 234, 212, 0.12);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 8px rgba(94, 234, 212, 0.12); }
+    50% { box-shadow: 0 0 0 14px rgba(94, 234, 212, 0.05); }
+  }
+  .mic-btn svg { width: 34px; height: 34px; }
+  .status {
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  .status.live { color: var(--accent); }
+  .transcript-box {
+    width: 100%;
+    max-height: 180px;
+    overflow-y: auto;
+    background: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+  .transcript-box:empty::before {
+    content: "La transcription apparaîtra ici pendant l'appel...";
+    opacity: 0.5;
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+  }
+  button.primary, button.ghost {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 9px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+  }
+  button.primary {
+    background: var(--accent);
+    color: var(--ink);
+  }
+  button.primary:disabled {
+    background: var(--surface-2);
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+  .notice {
+    background: rgba(232, 181, 99, 0.1);
+    border: 1px solid rgba(232, 181, 99, 0.3);
+    color: var(--warn);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-top: 18px;
+  }
+  /* --- Écran résumé --- */
+  #summaryScreen { display: none; }
+  .loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 30px 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+  .spinner {
+    width: 26px;
+    height: 26px;
+    border: 3px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .resume-content h2 {
+    font-size: 0.78rem;
+    text-transform: none;
+    color: var(--accent);
+    margin: 20px 0 8px;
+    font-weight: 600;
+  }
+  .resume-content h2:first-child { margin-top: 0; }
+  .resume-content p, .resume-content li {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .resume-content ul { margin: 4px 0; padding-left: 20px; }
+  .back-row {
+    margin-top: 24px;
+    display: flex;
+    gap: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card" id="listenScreen">
+  <h1>Écoute d'appel</h1>
+  <p class="sub">Appuie sur le micro pour démarrer l'écoute pendant ton appel Teams, puis termine pour générer le résumé.</p>
+
+  <div class="listen-zone">
+    <button class="mic-btn" id="micBtn" onclick="toggleListening()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    </button>
+    <div class="status" id="statusText">Prêt à écouter</div>
+    <div class="transcript-box" id="transcriptBox"></div>
+    <div class="actions">
+      <button class="primary" id="finishBtn" onclick="finishCall()" disabled>Terminer l'appel</button>
+    </div>
+  </div>
+
+  <div class="notice">
+    Capte le micro de cet appareil (pas directement l'audio interne de Teams). Fonctionne mieux sur Chrome, avec micro/casque partagé pendant l'appel. Le résumé est généré localement par extraction de phrases-clés — pas une vraie IA, donc moins fin qu'un résumé intelligent, mais 100% autonome (aucun serveur, aucune clé API).
+  </div>
+</div>
+
+<div class="card" id="summaryScreen">
+  <h1>Résumé de l'appel</h1>
+  <p class="sub">Généré à partir de la transcription captée.</p>
+
+  <div class="loader" id="loader">
+    <div class="spinner"></div>
+    <span>Génération du résumé...</span>
+  </div>
+
+  <div class="resume-content" id="resumeContent" style="display:none;"></div>
+
+  <div class="back-row">
+    <button class="ghost" onclick="restart()">Nouvel appel</button>
+    <button class="primary" id="copyBtn" onclick="copyResume()" style="display:none;">Copier</button>
+  </div>
+</div>
+
+<script>
+let recognition = null;
+let listening = false;
+let fullTranscript = "";
+
+function getRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = 'fr-FR';
+  r.continuous = true;
+  r.interimResults = true;
+  return r;
+}
+
+function toggleListening() {
+  if (!listening) {
+    startListening();
+  } else {
+    stopListening();
+  }
+}
+
+function startListening() {
+  recognition = getRecognition();
+  if (!recognition) {
+    document.getElementById('statusText').textContent = "Reconnaissance vocale non supportée sur ce navigateur (utilise Chrome).";
+    return;
+  }
+
+  recognition.onresult = (event) => {
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const text = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        fullTranscript += text + " ";
+      } else {
+        interim += text;
+      }
+    }
+    document.getElementById('transcriptBox').textContent = fullTranscript + interim;
+    document.getElementById('transcriptBox').scrollTop = document.getElementById('transcriptBox').scrollHeight;
+  };
+
+  recognition.onerror = (e) => {
+    document.getElementById('statusText').textContent = "Erreur micro : " + e.error;
+  };
+
+  recognition.onend = () => {
+    if (listening) recognition.start(); // relance auto (l'API coupe parfois toute seule)
+  };
+
+  recognition.start();
+  listening = true;
+  document.getElementById('micBtn').classList.add('recording');
+  document.getElementById('statusText').textContent = "Écoute en cours...";
+  document.getElementById('statusText').classList.add('live');
+  document.getElementById('finishBtn').disabled = false;
+}
+
+function stopListening() {
+  listening = false;
+  if (recognition) recognition.stop();
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('statusText').textContent = "En pause";
+  document.getElementById('statusText').classList.remove('live');
+}
+
+// --- Liste de mots vides français à ignorer dans le scoring ---
+const MOTS_VIDES = new Set(["le","la","les","un","une","des","de","du","et","à","au","aux",
+  "ce","ces","cet","cette","est","sont","être","avoir","a","ont","on","je","tu","il","elle",
+  "nous","vous","ils","elles","que","qui","pour","dans","sur","avec","pas","plus","mais","donc",
+  "or","ni","car","se","sa","son","ses","leur","leurs","en","par","comme","si","ne","d","l",
+  "y","alors","voilà","euh","bon","bah","ok","oui","non","très","bien","fait","faire","dit",
+  "va","peut","peux","être","aussi","tout","toute","tous","toutes","donc","c'est","j'ai","n'est"]);
+
+const PHRASES_POLITESSE = /^(bonjour|salut|bonsoir|merci|au revoir|à bientôt|bonne journée|bonne soirée|comment ça va|ça va\s*\??|d'accord|ok\s*\.?|super\s*\.?)/i;
+
+const FILLER_DEBUT = /^(donc|alors|bon|euh|bah|voilà|en fait|du coup|et puis|bref|écoute|écoutez|disons)[\s,]+/i;
+const HEDGE_DEBUT = /^(je pense (que|qu')|je crois (que|qu')|il faut dire (que|qu')|on va dire (que|qu')|disons (que|qu')|je dirais (que|qu'))\s*/i;
+
+function decouperPhrases(texte) {
+  return texte
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 8 && !PHRASES_POLITESSE.test(p));
+}
+
+function nettoyerMot(mot) {
+  return mot.toLowerCase().replace(/[^a-zàâäéèêëïîôöùûüç'\s]/g, "").replace(/'/g, " ");
+}
+
+function calculerFrequences(phrases) {
+  const freq = {};
+  phrases.forEach(p => {
+    nettoyerMot(p).split(/\s+/).forEach(mot => {
+      if (mot.length > 2 && !MOTS_VIDES.has(mot)) {
+        freq[mot] = (freq[mot] || 0) + 1;
+      }
+    });
+  });
+  return freq;
+}
+
+function scorerPhrases(phrases, freq) {
+  return phrases.map(p => {
+    const mots = nettoyerMot(p).split(/\s+/);
+    const score = mots.reduce((s, m) => s + (freq[m] || 0), 0) / Math.max(mots.length, 1);
+    return { texte: p, score };
+  });
+}
+
+// Transforme une phrase parlée en note courte et lisible
+function condenserEnNote(phrase) {
+  let p = phrase.trim();
+  let avant;
+  do {
+    avant = p;
+    p = p.replace(FILLER_DEBUT, "");
+    p = p.replace(HEDGE_DEBUT, "");
+  } while (p !== avant);
+
+  // Coupe les phrases trop longues à la première virgule pertinente
+  const mots = p.split(/\s+/);
+  if (mots.length > 18) {
+    const virgule = p.indexOf(",");
+    if (virgule > 15 && virgule < p.length - 8) {
+      p = p.slice(0, virgule);
+    } else {
+      p = mots.slice(0, 16).join(" ") + "…";
+    }
+  }
+
+  p = p.trim();
+  p = p.charAt(0).toUpperCase() + p.slice(1);
+  if (!/[.!?…]$/.test(p)) p += ".";
+  return p;
+}
+
+// Évite deux notes qui répètent la même idée (mots en commun trop nombreux)
+function dedupliquer(notes) {
+  const gardees = [];
+  notes.forEach(n => {
+    const motsN = new Set(nettoyerMot(n).split(/\s+/));
+    const tropSimilaire = gardees.some(g => {
+      const motsG = new Set(nettoyerMot(g).split(/\s+/));
+      const commun = [...motsN].filter(m => motsG.has(m)).length;
+      return commun / Math.min(motsN.size, motsG.size) > 0.6;
+    });
+    if (!tropSimilaire) gardees.push(n);
+  });
+  return gardees;
+}
+
+function genererResumeLocal(transcript) {
+  const phrases = decouperPhrases(transcript);
+
+  if (phrases.length === 0) {
+    return "<h2>Sommaire</h2><p>Transcription trop courte ou trop informelle pour être résumée.</p>";
+  }
+
+  const freq = calculerFrequences(phrases);
+  const scored = scorerPhrases(phrases, freq);
+
+  // Sommaire : thèmes clés les plus fréquents, sous forme de phrase de synthèse
+  const themes = Object.entries(freq)
+    .filter(([, c]) => c > 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([mot]) => mot);
+
+  const sommaire = themes.length > 0
+    ? `L'appel a porté principalement sur : ${themes.join(", ")}.`
+    : "Discussion courte, sans thème dominant clairement identifiable.";
+
+  // Points importants : meilleures phrases affirmatives, condensées et dédupliquées
+  const affirmatives = scored.filter(s => !s.texte.trim().endsWith("?"));
+  const top8 = [...affirmatives].sort((a, b) => b.score - a.score).slice(0, 8);
+  const ordonnees = phrases.filter(p => top8.some(t => t.texte === p));
+  const notes = dedupliquer(ordonnees.map(condenserEnNote)).slice(0, 5);
+
+  // Questions réellement posées pendant l'appel
+  const questionsPosees = phrases.filter(p => p.trim().endsWith("?")).map(condenserEnNote);
+
+  let html = `<h2>Sommaire</h2><p>${sommaire}</p>`;
+
+  html += `<h2>Points importants</h2><ul>`;
+  notes.forEach(n => html += `<li>${n}</li>`);
+  html += `</ul>`;
+
+  html += `<h2>Questions</h2>`;
+  if (questionsPosees.length > 0) {
+    html += `<ul>`;
+    dedupliquer(questionsPosees).forEach(q => html += `<li>${q}</li>`);
+    html += `</ul>`;
+  } else {
+    html += `<p>Aucune question explicite détectée dans l'appel. Relis les points importants ci-dessus pour identifier ce qui mérite d'être clarifié.</p>`;
+  }
+
+  return html;
+}
+
+function finishCall() {
+  stopListening();
+
+  if (!fullTranscript.trim()) {
+    document.getElementById('statusText').textContent = "Rien à résumer pour l'instant.";
+    return;
+  }
+
+  document.getElementById('listenScreen').style.display = 'none';
+  document.getElementById('summaryScreen').style.display = 'block';
+  document.getElementById('loader').style.display = 'none';
+
+  const html = genererResumeLocal(fullTranscript);
+  document.getElementById('resumeContent').innerHTML = html;
+  document.getElementById('resumeContent').style.display = 'block';
+  document.getElementById('copyBtn').style.display = 'block';
+}
+
+function copyResume() {
+  const text = document.getElementById('resumeContent').innerText;
+  navigator.clipboard.writeText(text);
+  const btn = document.getElementById('copyBtn');
+  const old = btn.textContent;
+  btn.textContent = "Copié !";
+  setTimeout(() => btn.textContent = old, 1500);
+}
+
+function restart() {
+  fullTranscript = "";
+  document.getElementById('transcriptBox').textContent = "";
+  document.getElementById('statusText').textContent = "Prêt à écouter";
+  document.getElementById('finishBtn').disabled = true;
+  document.getElementById('summaryScreen').style.display = 'none';
+  document.getElementById('listenScreen').style.display = 'block';
+}
+</script>
+
+</body>
+</html>
